@@ -1,0 +1,27 @@
+# Build outputs
+dist/
+build/
+
+# Toolchain cache
+.toolchains/
+
+# ccache
+.ccache/
+
+# Kernel source (fetched at build time, not committed)
+sources/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Build metadata
+build-info.json

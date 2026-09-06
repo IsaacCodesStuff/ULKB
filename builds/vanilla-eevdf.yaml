@@ -1,0 +1,41 @@
+# Baseline build — stock EEVDF, no patches, no scheduler modifications.
+# This is the reference point for all REM/HESTIA benchmark comparisons.
+
+meta:
+  name: vanilla-eevdf
+  description: "Stock upstream EEVDF — benchmark baseline"
+
+kernel:
+  source:
+    type: git
+    repo: https://github.com/torvalds/linux
+    branch: master
+
+target:
+  arch: x86_64
+  cross_compile: null
+
+toolchain:
+  descriptor: toolchains/neutron-23.yaml
+
+config:
+  base: defconfig
+  mode: release
+  fragments:
+    - configs/common/perf.config
+
+patches: []
+
+build:
+  jobs: auto
+  ccache: true
+  flags:
+    - LLVM=1
+    - LLVM_IAS=1
+
+output:
+  directory: dist/vanilla-eevdf
+  artifacts:
+    - arch/x86/boot/bzImage
+    - System.map
+  metadata: true

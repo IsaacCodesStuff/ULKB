@@ -1,0 +1,20 @@
+name: "Google Clang"
+version: "23.0.1"
+build_id: "16165221"
+revision: "r614150"
+url: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r614150.tar.gz"
+checksum:
+  algorithm: sha256
+  value: ""
+
+env:
+  CC: clang
+  LD: ld.lld
+  AR: llvm-ar
+  NM: llvm-nm
+  OBJCOPY: llvm-objcopy
+  OBJDUMP: llvm-objdump
+  READELF: llvm-readelf
+  STRIP: llvm-strip
+  HOSTCC: clang
+  HOSTCXX: clang++
