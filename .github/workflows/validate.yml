@@ -1,12 +1,14 @@
-# .github/workflows/validate.yml
 # Validates build definitions without doing a full kernel build.
-# Fast — runs in < 1 minute. Good for every push/PR.
+# Fast — runs in under a minute. Good for every push/PR.
 
-name: Validate Build Definitions
+name: Validate
 
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -19,13 +21,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest
 
-      - name: Validate YAML schemas
+      - name: Validate build definitions
         run: python -m builder validate builds/
 
       - name: Validate toolchain descriptors
-        run: python -m builder validate toolchains/
+        run: python -m builder validate --kind toolchain toolchains/
 
       - name: Validate config fragments
         run: python -m builder validate-configs configs/
+
+      - name: Unit tests
+        run: python -m pytest -q

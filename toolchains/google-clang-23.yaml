@@ -1,3 +1,7 @@
+# UNVERIFIED: this descriptor came from the original design chat and its
+# URL/revision have not been checked. Google's prebuilt clang is what Android
+# (ACK) kernels use, so it is only needed once the arm64 work starts.
+# Pin it with: python -m builder pin-toolchain toolchains/google-clang-23.yaml
 name: "Google Clang"
 version: "23.0.1"
 build_id: "16165221"
@@ -5,7 +9,7 @@ revision: "r614150"
 url: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r614150.tar.gz"
 checksum:
   algorithm: sha256
-  value: ""
+  value: ""   # fill with pin-toolchain
 
 env:
   CC: clang
@@ -18,3 +22,6 @@ env:
   STRIP: llvm-strip
   HOSTCC: clang
   HOSTCXX: clang++
+
+extract:
+  strip_components: 0

@@ -1,0 +1,52 @@
+# T440 minimal kernel: generic x86_64 defconfig plus only the hardware
+# fragment. Smaller and a better way to learn what the machine needs, but it
+# is more likely to be missing something than t440-dev. Use the config audit
+# output to see what the kernel refused.
+
+meta:
+  name: t440-minimal
+  description: "T440 minimal kernel — defconfig + t440 hardware fragment"
+  maintainer: "Isaac"
+
+kernel:
+  source:
+    type: git
+    repo: https://github.com/torvalds/linux
+    branch: v7.2            # release tag, so every comparison build uses the same source
+    depth: 1
+
+target:
+  arch: x86_64
+  cross_compile: null
+
+toolchain:
+  descriptor: toolchains/kernel-org-llvm-23.yaml
+
+config:
+  base: defconfig
+  mode: release
+  localversion: "-ulkb-t440-min"
+  fragments:
+    - configs/common/boot.config
+    - configs/thinkpad/t440.config
+    - configs/common/netfilter.config
+    - configs/common/research.config
+    - configs/common/perf.config
+    - configs/common/lean.config
+
+patches: []
+
+build:
+  jobs: auto
+  ccache: true
+  flags:
+    - LLVM=1
+    - LLVM_IAS=1
+
+output:
+  directory: dist/t440-minimal
+  install_modules: true
+  artifacts:
+    - arch/x86/boot/bzImage
+    - System.map
+  metadata: true

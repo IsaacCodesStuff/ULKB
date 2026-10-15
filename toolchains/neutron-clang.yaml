@@ -1,0 +1,24 @@
+# Neutron Clang is a ROLLING toolchain: a new snapshot of LLVM's main branch
+# is built every week and there is no "stable" channel. That makes it good
+# for trying new compiler features and bad for reproducible benchmarks.
+# Use toolchains/kernel-org-llvm-23.yaml for baseline/benchmark builds.
+#
+# Install it yourself with antman (Neutron's own toolchain manager):
+#   mkdir -p ~/toolchains/neutron-clang && cd ~/toolchains/neutron-clang
+#   curl -LO https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+#   chmod +x antman && ./antman -S
+name: "Neutron Clang"
+version: "rolling"
+path: "~/toolchains/neutron-clang"
+
+env:
+  CC: clang
+  LD: ld.lld
+  AR: llvm-ar
+  NM: llvm-nm
+  OBJCOPY: llvm-objcopy
+  OBJDUMP: llvm-objdump
+  READELF: llvm-readelf
+  STRIP: llvm-strip
+  HOSTCC: clang
+  HOSTCXX: clang++

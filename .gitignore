@@ -24,4 +24,7 @@ __pycache__/
 *.swp
 
 # Build metadata
-build-info.json
+build-info.json.pytest_cache/
+
+# Scratch space for machine-specific files you do not want to commit
+configs/local/

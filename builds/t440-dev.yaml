@@ -1,0 +1,60 @@
+# T440 dev kernel: the CachyOS config the T440 runs today as the base, trimmed to
+# the modules the T440 actually loads (localmodconfig), plus the research
+# fragments.
+#
+# Safest first build: it starts from a config known to boot this machine.
+# Both inputs are committed to the repo so GitHub Actions can build it:
+#   configs/thinkpad/t440-cachyos.config   <- zcat /proc/config.gz  (run on the T440)
+#   configs/thinkpad/t440.lsmod            <- saved `lsmod` output (included)
+#
+# Note: the CachyOS config contains options from patches that mainline does not
+# have (BORE and friends). Mainline ignores them, so this builds a mainline EEVDF
+# kernel with CachyOS's other choices (preemption mode, tick rate, ...), except
+# where lean.config overrides them.
+
+meta:
+  name: t440-dev
+  description: "T440 dev kernel — CachyOS config trimmed by localmodconfig + research flags"
+  maintainer: "Isaac"
+
+kernel:
+  source:
+    type: git
+    repo: https://github.com/torvalds/linux
+    branch: v7.2            # a release tag: the base config comes from 7.2.x
+    depth: 1
+
+target:
+  arch: x86_64
+  cross_compile: null
+
+toolchain:
+  descriptor: toolchains/kernel-org-llvm-23.yaml
+
+config:
+  base: configs/thinkpad/t440-cachyos.config
+  mode: dev
+  lsmod_file: configs/thinkpad/t440.lsmod
+  localversion: "-ulkb-t440-dev"
+  fragments:
+    - configs/common/boot.config
+    - configs/common/research.config
+    - configs/common/perf.config
+    - configs/common/lean.config
+
+patches: []
+
+build:
+  jobs: auto
+  ccache: true
+  flags:
+    - LLVM=1
+    - LLVM_IAS=1
+
+output:
+  directory: dist/t440-dev
+  install_modules: true     # stages modules in dist/t440-dev/rootfs (nothing is installed on your system)
+  artifacts:
+    - arch/x86/boot/bzImage
+    - System.map
+  metadata: true

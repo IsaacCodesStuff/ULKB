@@ -1,0 +1,98 @@
+# Builds a kernel from one of the definitions in builds/ on a GitHub-hosted
+# runner and uploads the result as a downloadable artifact.
+#
+# Run it from the Actions tab: "Build kernel" -> "Run workflow", then type the
+# name of a file in builds/ (without .yaml), for example: t440-dev
+
+name: Build kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Build definition in builds/ (without .yaml)"
+        required: true
+        default: t440-dev
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      BUILD: ${{ inputs.build }}
+    steps:
+      - name: Check the build name
+        run: |
+          case "$BUILD" in
+            *[!A-Za-z0-9_-]*|"") echo "Invalid build name: $BUILD" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The runner's disk is small and kernel builds are big
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libelf-dev libssl-dev cpio ccache zstd xz-utils \
+            dwarves rsync kmod
+
+      - name: Install ULKB dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kernel-builder/toolchains
+          key: toolchains-${{ hashFiles('toolchains/*.yaml') }}
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kernel-builder/ccache
+          key: ccache-${{ env.BUILD }}-${{ github.run_id }}
+          restore-keys: ccache-${{ env.BUILD }}-
+
+      - name: Validate
+        run: |
+          python -m builder validate "builds/${BUILD}.yaml"
+          python -m builder validate --kind toolchain toolchains/
+          python -m builder validate-configs configs/
+
+      - name: Build
+        run: python -m builder build "builds/${BUILD}.yaml"
+
+      - name: Package
+        run: |
+          out="$(python - <<'PY'
+          import os, yaml
+          with open(f"builds/{os.environ['BUILD']}.yaml") as f:
+              print(yaml.safe_load(f)["output"]["directory"])
+          PY
+          )"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          if [ -d "$out/rootfs/lib/modules" ]; then
+            # these two symlinks point back into the CI runner's source tree
+            rm -f "$out"/rootfs/lib/modules/*/build "$out"/rootfs/lib/modules/*/source
+            tar -C "$out/rootfs" -I 'zstd -T0' -cf "$out/modules.tar.zst" lib
+            rm -rf "$out/rootfs"
+          fi
+          ls -lh "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ env.BUILD }}
+          path: ${{ env.OUT }}
+          retention-days: 14

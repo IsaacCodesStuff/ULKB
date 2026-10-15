@@ -1,5 +1,5 @@
 # Baseline build — stock EEVDF, no patches, no scheduler modifications.
-# This is the reference point for all REM/HESTIA benchmark comparisons.
+# This is the reference point for all REM/ICS benchmark comparisons.
 
 meta:
   name: vanilla-eevdf
@@ -9,14 +9,16 @@ kernel:
   source:
     type: git
     repo: https://github.com/torvalds/linux
-    branch: master
+    # "branch" also accepts a tag. A tag keeps the baseline from moving.
+    branch: v7.2            # release tag, so every comparison build uses the same source
+    depth: 1   # shallow clone: only the newest commit, not the full history
 
 target:
   arch: x86_64
   cross_compile: null
 
 toolchain:
-  descriptor: toolchains/neutron-23.yaml
+  descriptor: toolchains/kernel-org-llvm-23.yaml
 
 config:
   base: defconfig

@@ -1,0 +1,30 @@
+# LLVM release builds published for kernel developers by kernel.org.
+# These are real, versioned stable releases (unlike Neutron, which is a
+# weekly snapshot of LLVM's main branch), so builds are reproducible.
+# Needs glibc 2.28 or newer on the host.
+#
+# After changing the URL, run:
+#   python -m builder pin-toolchain toolchains/kernel-org-llvm-23.yaml
+# and compare the printed sha256 with
+#   https://mirrors.edge.kernel.org/pub/tools/llvm/files/sha256sums.asc
+name: "kernel.org LLVM"
+version: "23.1.1"
+url: "https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.1-x86_64.tar.xz"
+checksum:
+  algorithm: sha256
+  value: "4511aee50112bf96d8f5108daa8bc1b99283fab51d37068758f91b9217940129"
+
+extract:
+  strip_components: 1   # archive unpacks into llvm-<version>-x86_64/
+
+env:
+  CC: clang
+  LD: ld.lld
+  AR: llvm-ar
+  NM: llvm-nm
+  OBJCOPY: llvm-objcopy
+  OBJDUMP: llvm-objdump
+  READELF: llvm-readelf
+  STRIP: llvm-strip
+  HOSTCC: clang
+  HOSTCXX: clang++

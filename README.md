@@ -1,61 +1,108 @@
-# universal-linux-builder
+# ULKB — Universal Linux Kernel Builder
 
-A declarative, YAML-driven Linux kernel build system designed for
-iterative scheduler research and development.
+A declarative, YAML-driven Linux kernel build system for iterative scheduler
+research and development.
 
-Built to support the upcoming REM and ICS scheduler projects, but
-general enough to build any upstream or downstream Linux kernel tree.
+Built to support the upcoming **REM** and **ICS** scheduler projects (both
+EEVDF extensions), but general enough to build any upstream or downstream
+Linux kernel tree.
+
+> **Status:** early development (~15%). The CLI, validators and build
+> pipeline exist; no real kernel build has been run end to end yet.
 
 ## Features
 
 - YAML build definitions — describe what to build, not how
-- Toolchain management — Neutron Clang, Google Clang, GCC, kernel.org LLVM
+- Toolchain management — kernel.org LLVM (stable), Neutron Clang (rolling), Google Clang
 - Config fragment merging — compose kernel configs from reusable fragments
 - Patch series management — apply ordered patch sets with conflict detection
-- Incremental builds with ccache — iterate fast without full rebuilds
-- Build metadata — every artifact ships with a build-info.json
-- Matrix builds — scheduler × compiler × kernel version comparison builds
-- GitHub Actions integration — CI/CD out of the box
+- Incremental builds with ccache
+- Build metadata — every artifact set ships with a `build-info.json`
+- Matrix builds — scheduler × compiler × kernel version (`builder/matrix.py`, not wired into the CLI yet)
+- GitHub Actions: validation on every push, and a manual "Build kernel" workflow
 
-## Supported Targets
+## Supported targets
 
-| Arch   | Use Case                   |
+| Arch   | Use case                   |
 | ------ | -------------------------- |
 | x86_64 | ThinkPad (REM/ICS dev)     |
 | arm64  | Android / ACK (Rem kernel) |
 
-## Quick Start
+## Quick start
 
-\`\`\`bash
+```bash
 pip install -r requirements.txt
-python -m builder build builds/vanilla-eevdf.yaml
-\`\`\`
+python -m builder list-builds
+python -m builder build builds/vanilla-eevdf.yaml --dry-run
+```
 
-## Build Definition Example
+Before the first real build, pin the toolchain checksum (downloads the
+archive once):
 
-\`\`\`yaml
+```bash
+python -m builder pin-toolchain toolchains/kernel-org-llvm-23.yaml
+```
+
+## First target: ThinkPad T440
+
+See [docs/T440.md](docs/T440.md) for the two T440 builds, the setup steps,
+how to read the config audit and how to install the result.
+
+Builds run on GitHub with **Actions → Build kernel → Run workflow** (`.github/workflows/build.yml`).
+
+## Commands
+
+| Command                              | What it does                                              |
+| ------------------------------------ | --------------------------------------------------------- |
+| `build FILE [--dry-run]`             | Fetch source, toolchain, patch, configure, build, collect |
+| `list-builds`                        | List the definitions in `builds/`                         |
+| `validate PATH`                      | Validate build definitions                                |
+| `validate --kind toolchain PATH`     | Validate toolchain descriptors                            |
+| `validate-configs PATH`              | Lint kernel config fragments                              |
+| `pin-toolchain FILE`                 | Download a toolchain and record its sha256                |
+
+Build files can also set `config.base` to an existing `.config` file,
+`config.localversion` for a per-build version suffix, `config.strict` to fail
+on config mismatches, and `output.install_modules` to stage modules.
+
+## Build definition example
+
+```yaml
+meta:
+  name: rem-thinkpad
+
 kernel:
-source:
-type: git
-repo: https://github.com/IsaacCodesStuff/linux
-branch: rem-dev
+  source:
+    type: git
+    repo: https://github.com/IsaacCodesStuff/linux
+    branch: rem-dev
 
 target:
-arch: x86_64
+  arch: x86_64
 
 toolchain:
-provider: neutron
-version: "23.0.1"
+  descriptor: toolchains/kernel-org-llvm-23.yaml
 
 config:
-base: defconfig
-fragments: - configs/rem/scheduler.config - configs/thinkpad/base.config
+  base: defconfig
+  fragments:
+    - configs/thinkpad/base.config
 
 build:
-jobs: auto
-ccache: true
-flags: - LLVM=1 - LLVM_IAS=1
+  jobs: auto
+  ccache: true
+  flags:
+    - LLVM=1
+    - LLVM_IAS=1
 
 output:
-directory: dist/
-\`\`\`
+  directory: dist/rem-thinkpad
+```
+
+## Toolchains
+
+| Descriptor                          | Kind                | Use for                          |
+| ----------------------------------- | ------------------- | -------------------------------- |
+| `toolchains/kernel-org-llvm-23.yaml` | Stable, downloaded  | Baselines and benchmarks         |
+| `toolchains/neutron-clang.yaml`      | Rolling, installed  | Trying new compiler features     |
+| `toolchains/google-clang-23.yaml`    | Unverified          | Android/ACK work (later)         |
