@@ -13,6 +13,8 @@ import tarfile
 import urllib.request
 from pathlib import Path
 from rich.console import Console
+
+from .download import download_file
 from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn
 
@@ -55,9 +57,10 @@ def _fetch_git(cfg: dict, console: Console) -> Path:
     if (dest / ".git").exists():
         console.print(f"[green]✓[/green] Repo exists — fetching latest: [dim]{dest}[/dim]")
         _run(
-            ["git", "fetch", "origin", branch, f"--depth={depth}"],
+            ["git", "fetch", "--progress", "origin", branch, f"--depth={depth}"],
             cwd=dest,
             console=console,
+            live=True,
         )
         _run(
             ["git", "checkout", "--detach", "FETCH_HEAD"],   # works for branches and tags
@@ -69,7 +72,7 @@ def _fetch_git(cfg: dict, console: Console) -> Path:
         console.print(f"  Destination: [dim]{dest}[/dim]")
         _run(
             [
-                "git", "clone",
+                "git", "clone", "--progress",
                 "--depth", str(depth),
                 "--branch", branch,
                 "--single-branch",
@@ -77,6 +80,7 @@ def _fetch_git(cfg: dict, console: Console) -> Path:
                 str(dest),
             ],
             console=console,
+            live=True,
         )
 
     commit = _git_rev(dest)
@@ -125,24 +129,7 @@ def _fetch_tarball(cfg: dict, console: Console) -> Path:
 
 
 def _download_with_progress(url: str, dest: Path, console: Console):
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        DownloadColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task(f"Downloading {dest.name}", total=None)
-
-        def reporthook(block_num, block_size, total_size):
-            if total_size > 0:
-                progress.update(task, total=total_size, advance=block_size)
-            else:
-                progress.update(task, advance=block_size)
-
-        part = dest.with_name(dest.name + ".part")   # never leave a truncated archive
-        urllib.request.urlretrieve(url, part, reporthook)
-        part.replace(dest)
+    download_file(url, dest, console)
 
 
 def _verify_checksum(path: Path, algorithm: str, expected: str):
@@ -178,12 +165,47 @@ def _extract_tarball(archive: Path, console: Console) -> Path:
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _run(cmd: list, console: Console, cwd=None):
-    """Run a subprocess, streaming output to console. Raises on failure."""
+def _run(cmd: list, console: Console, cwd=None, live: bool = False):
+    """Run a subprocess. Raises on failure.
+
+    With live=True (git clone/fetch) git's own progress lines ("Receiving
+    objects: 42%") are shown on a spinner line so a slow network is visible,
+    and a connection that stays below 1 KB/s for 60 s is aborted instead of
+    hanging forever.
+    """
     console.print(f"  [dim]$ {' '.join(str(c) for c in cmd)}[/dim]")
-    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
-    if result.returncode != 0:
-        console.print(f"[red]{escape(result.stderr)}[/red]")
+    if not live:
+        result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+        if result.returncode != 0:
+            console.print(f"[red]{escape(result.stderr)}[/red]")
+            raise RuntimeError(
+                f"Command failed (exit {result.returncode}): {' '.join(str(c) for c in cmd)}"
+            )
+        return
+
+    env = dict(os.environ, GIT_HTTP_LOW_SPEED_LIMIT="1000", GIT_HTTP_LOW_SPEED_TIME="60")
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    tail, buf = [], ""
+    with console.status("[bold]git[/bold] starting…", spinner="dots") as status:
+        while True:
+            ch = proc.stderr.read(1)
+            if not ch:
+                break
+            if ch in "\r\n":
+                line = buf.strip()
+                buf = ""
+                if line:
+                    tail.append(line)
+                    del tail[:-20]
+                    status.update(f"[bold]git[/bold] {escape(line)}")
+            else:
+                buf += ch
+    code = proc.wait()
+    if code != 0:
+        console.print(f"[red]{escape(chr(10).join(tail))}[/red]")
         raise RuntimeError(
-            f"Command failed (exit {result.returncode}): {' '.join(str(c) for c in cmd)}"
+            f"Command failed (exit {code}): {' '.join(str(c) for c in cmd)}"
         )

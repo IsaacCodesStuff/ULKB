@@ -13,6 +13,8 @@ from pathlib import Path
 import yaml
 from rich.console import Console
 
+from .download import download_file
+
 
 # Default cache location — overrideable via descriptor or env var
 DEFAULT_CACHE = Path(os.environ.get("KBUILD_TOOLCHAIN_CACHE", "~/.cache/kernel-builder/toolchains")).expanduser()
@@ -148,11 +150,7 @@ def _download(url: str, dest: Path, console: Console):
     if dest.exists():
         console.print(f"  [dim]Archive already downloaded: {dest.name}[/dim]")
         return
-    # Download to a .part file so an interrupted download is never mistaken
-    # for a complete archive on the next run.
-    part = dest.with_name(dest.name + ".part")
-    urllib.request.urlretrieve(url, part)
-    part.replace(dest)
+    download_file(url, dest, console)
     console.print(f"[green]✓[/green] Downloaded: [dim]{dest.name}[/dim]")
 
 

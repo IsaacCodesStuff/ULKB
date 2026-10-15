@@ -12,7 +12,7 @@ version: "23.1.1"
 url: "https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.1-x86_64.tar.xz"
 checksum:
   algorithm: sha256
-  value: "4511aee50112bf96d8f5108daa8bc1b99283fab51d37068758f91b9217940129"
+  value: ""   # fill with: python -m builder pin-toolchain <this file>
 
 extract:
   strip_components: 1   # archive unpacks into llvm-<version>-x86_64/
