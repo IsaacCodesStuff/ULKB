@@ -52,8 +52,7 @@ build:
     - LLVM_IAS=1
 
 output:
-  directory: dist/t440-dev
-  install_modules: true     # stages modules in dist/t440-dev/rootfs (nothing is installed on your system)
+  install_modules: true     # staged in out/t440-dev/dist/rootfs (nothing is installed on your system)
   artifacts:
     - arch/x86/boot/bzImage
     - System.map

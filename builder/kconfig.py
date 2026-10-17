@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .toolchain import Toolchain
+from .paths import obj_dir as default_obj_dir
 
 
 def configure_kernel(
@@ -23,8 +24,12 @@ def configure_kernel(
     config: dict,
     toolchain: Toolchain,
     console: Console,
+    obj_dir: Path = None,
 ):
-    """Configure the kernel in source_dir according to build config.
+    """Configure the kernel according to the build config.
+
+    The source tree is never written to: the .config and everything generated
+    from it live in obj_dir (make O=).
 
     Steps:
       1. Generate base .config (defconfig or localmodconfig)
@@ -35,6 +40,9 @@ def configure_kernel(
         RuntimeError: If any make step fails.
     """
     source_dir  = Path(source_dir).resolve()   # make runs with cwd=source_dir, so paths must be absolute
+    obj_dir     = Path(obj_dir if obj_dir is not None else default_obj_dir(config)).resolve()
+    obj_dir.mkdir(parents=True, exist_ok=True)
+    _require_clean_source(source_dir)
     arch        = config["target"]["arch"]
     base        = config["config"]["base"]
     mode        = config["config"]["mode"]
@@ -54,12 +62,12 @@ def configure_kernel(
                 "and commit it if you build with GitHub Actions."
             )
         console.print(f"  Base config: [bold]{src_cfg}[/bold] [dim](existing .config)[/dim]")
-        shutil.copy2(src_cfg, source_dir / ".config")
-        _make(source_dir, arch, ["olddefconfig"], env, build_flags, console)
+        shutil.copy2(src_cfg, obj_dir / ".config")
+        _make(source_dir, obj_dir, arch, ["olddefconfig"], env, build_flags, console)
     else:
         # localmodconfig trims an existing .config, so always generate the base first.
         console.print(f"  Base config: [bold]{base}[/bold]")
-        _make(source_dir, arch, [base], env, build_flags, console)
+        _make(source_dir, obj_dir, arch, [base], env, build_flags, console)
 
     lsmod_file = config["config"].get("lsmod_file")
     if mode == "dev" and (lsmod_file or shutil.which("lsmod")):
@@ -73,7 +81,7 @@ def configure_kernel(
             if not os.path.isfile(os.path.expanduser(lsmod_file)):
                 raise FileNotFoundError(f"config.lsmod_file not found: {lsmod_file}")
             lm_env["LSMOD"] = os.path.abspath(os.path.expanduser(lsmod_file))
-        _make(source_dir, arch, ["localmodconfig"], lm_env, build_flags, console)
+        _make(source_dir, obj_dir, arch, ["localmodconfig"], lm_env, build_flags, console)
 
     # ── Step 2: Merge fragments ────────────────────────────────────────────────
     # merge_config.sh runs with cwd=source_dir, so fragment paths must be absolute
@@ -84,7 +92,7 @@ def configure_kernel(
     # /lib/modules/<release> directory, away from your distro kernel's.
     localversion = config["config"].get("localversion")
     if localversion:
-        lv_file = source_dir / ".ulkb-localversion.config"
+        lv_file = obj_dir / ".ulkb-localversion.config"
         lv_file.write_text(
             f'CONFIG_LOCALVERSION="{localversion}"\n'
             "# CONFIG_LOCALVERSION_AUTO is not set\n"
@@ -108,8 +116,9 @@ def configure_kernel(
         result = subprocess.run(
             [
                 "bash", str(merge_script),
-                "-m",               # merge into existing .config
-                ".config",
+                "-m",               # merge only; olddefconfig runs below
+                "-O", str(obj_dir), # the .config lives in the output directory
+                str(obj_dir / ".config"),
                 *existing_fragments,
             ],
             cwd=source_dir,
@@ -128,11 +137,11 @@ def configure_kernel(
 
     # ── Step 3: olddefconfig ───────────────────────────────────────────────────
     console.print("  Running make olddefconfig…")
-    _make(source_dir, arch, ["olddefconfig"], env, build_flags, console)
+    _make(source_dir, obj_dir, arch, ["olddefconfig"], env, build_flags, console)
 
     # ── Step 4: Audit — did the kernel actually accept what the fragments asked for? ──
     if existing_fragments:
-        problems = audit_fragments(existing_fragments, source_dir / ".config")
+        problems = audit_fragments(existing_fragments, obj_dir / ".config")
         _print_audit(problems, console)
         if problems and config["config"].get("strict"):
             raise RuntimeError(
@@ -147,15 +156,28 @@ def configure_kernel(
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _require_clean_source(source_dir: Path):
+    """make O= refuses to run if the source tree was built in-place before."""
+    leftovers = [p for p in (".config", "include/config", "include/generated")
+                 if (source_dir / p).exists()]
+    if leftovers:
+        raise RuntimeError(
+            f"{source_dir} contains build output ({', '.join(leftovers)}) from an in-tree build.\n"
+            "ULKB builds out of tree (make O=), which needs a pristine source folder. Delete that\n"
+            "folder and let ULKB fetch it again, or run `make mrproper` inside it."
+        )
+
+
 def _make(
     source_dir: Path,
+    obj_dir: Path,
     arch: str,
     targets: list,
     env: dict,
     extra_flags: list,
     console: Console,
 ):
-    cmd = ["make", f"ARCH={_kernel_arch(arch)}", *extra_flags, *targets]
+    cmd = ["make", f"ARCH={_kernel_arch(arch)}", f"O={obj_dir}", *extra_flags, *targets]
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]")
 
     result = subprocess.run(

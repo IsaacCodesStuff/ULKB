@@ -20,6 +20,7 @@ from .patch import apply_patches
 from .kconfig import configure_kernel
 from .build import build_kernel
 from .artifact import collect_artifacts
+from .paths import obj_dir as obj_dir_for
 
 console = Console()
 
@@ -101,6 +102,8 @@ def build(build_file, toolchain_override, dry_run, jobs, no_ccache):
     console.rule("[bold]Step 2 — Kernel source[/bold]")
     try:
         source_dir = fetch_kernel_source(config["kernel"]["source"], console)
+        obj_dir = obj_dir_for(config)
+        console.print(f"  Build output: [dim]{obj_dir}[/dim] [dim](source stays untouched)[/dim]")
     except Exception as e:
         console.print(f"[bold red]Source fetch failed:[/bold red] {escape(str(e))}")
         sys.exit(1)
@@ -124,7 +127,7 @@ def build(build_file, toolchain_override, dry_run, jobs, no_ccache):
     # ── 5. Configure ──────────────────────────────────────────────────────────
     console.rule("[bold]Step 5 — Kernel configuration[/bold]")
     try:
-        configure_kernel(source_dir, config, toolchain, console)
+        configure_kernel(source_dir, config, toolchain, console, obj_dir)
     except Exception as e:
         console.print(f"[bold red]Config failed:[/bold red] {escape(str(e))}")
         sys.exit(1)
@@ -132,7 +135,7 @@ def build(build_file, toolchain_override, dry_run, jobs, no_ccache):
     # ── 6. Build ──────────────────────────────────────────────────────────────
     console.rule("[bold]Step 6 — Build[/bold]")
     try:
-        build_kernel(source_dir, config, toolchain, console)
+        build_kernel(source_dir, config, toolchain, console, obj_dir)
     except Exception as e:
         console.print(f"[bold red]Build failed:[/bold red] {escape(str(e))}")
         sys.exit(1)
@@ -140,7 +143,7 @@ def build(build_file, toolchain_override, dry_run, jobs, no_ccache):
     # ── 7. Collect artifacts ──────────────────────────────────────────────────
     console.rule("[bold]Step 7 — Artifacts[/bold]")
     try:
-        collect_artifacts(source_dir, config, console)
+        collect_artifacts(source_dir, config, console, obj_dir)
     except Exception as e:
         console.print(f"[bold red]Artifact collection failed:[/bold red] {escape(str(e))}")
         sys.exit(1)

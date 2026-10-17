@@ -69,30 +69,32 @@ def test_localversion_validation(tmp_path):
 # ── A fake kernel tree lets us exercise configure + build without a real kernel ──
 
 MAKEFILE = r"""
+# Like the kernel's Makefile, everything generated goes under $(O).
 defconfig:
-	@echo "CONFIG_FROM_DEFCONFIG=y" > .config
+	@mkdir -p $(O) && echo "CONFIG_FROM_DEFCONFIG=y" > $(O)/.config
 olddefconfig:
-	@touch .config
+	@touch $(O)/.config
 localmodconfig:
-	@echo "# trimmed" >> .config
+	@echo "# trimmed" >> $(O)/.config
 bzImage:
-	@mkdir -p arch/x86/boot include/config && echo img > arch/x86/boot/bzImage && echo 9.9.9-test > include/config/kernel.release
+	@mkdir -p $(O)/arch/x86/boot $(O)/include/config && echo img > $(O)/arch/x86/boot/bzImage && echo 9.9.9-test > $(O)/include/config/kernel.release
 modules:
 	@true
 modules_install:
 	@mkdir -p $(INSTALL_MOD_PATH)/lib/modules/9.9.9-test && echo "strip=$(INSTALL_MOD_STRIP)" > $(INSTALL_MOD_PATH)/lib/modules/9.9.9-test/note
 """
 
+# Stand-in for merge_config.sh, called as: -m -O <dir> <initial .config> <fragments...>
 MERGE = """#!/bin/bash
-# stand-in for merge_config.sh: append every fragment line to .config
-shift 2
-cat "$@" >> .config
+shift 3
+init=$1; shift
+cat "$@" >> "$init"
 """
 
 
 @pytest.fixture
 def tree(tmp_path):
-    src = tmp_path / "linux"
+    src = tmp_path / "kernel-9.9"
     (src / "scripts" / "kconfig").mkdir(parents=True)
     (src / "Makefile").write_text(MAKEFILE)
     (src / "scripts" / "kconfig" / "merge_config.sh").write_text(MERGE)
@@ -118,19 +120,21 @@ def test_base_file_is_copied_and_localversion_merged(tree, tmp_path):
     base.write_text("CONFIG_FROM_ARCH=y\n")
     frag = tmp_path / "frag.config"
     frag.write_text("CONFIG_X=y\n")
+    obj = tmp_path / "obj"
     c = cfg(str(base), tmp_path / "dist", localversion="-ulkb-test", fragments=[str(frag)])
-    kconfig.configure_kernel(src, c, tc, Console())
-    text = (src / ".config").read_text()
+    kconfig.configure_kernel(src, c, tc, Console(), obj)
+    text = (obj / ".config").read_text()
     assert "CONFIG_FROM_ARCH=y" in text and "CONFIG_FROM_DEFCONFIG" not in text
     assert "CONFIG_X=y" in text
     assert 'CONFIG_LOCALVERSION="-ulkb-test"' in text
+    assert not (src / ".config").exists()       # the source tree is never written to
 
 
 def test_missing_base_file_gives_helpful_error(tree, tmp_path):
     src, tc = tree
     c = cfg(str(tmp_path / "nope.config"), tmp_path / "dist")
     with pytest.raises(FileNotFoundError, match="/proc/config.gz"):
-        kconfig.configure_kernel(src, c, tc, Console())
+        kconfig.configure_kernel(src, c, tc, Console(), tmp_path / "obj")
 
 
 def test_strict_mode_fails_on_unhonoured_symbol(tree, tmp_path):
@@ -139,23 +143,44 @@ def test_strict_mode_fails_on_unhonoured_symbol(tree, tmp_path):
     frag.write_text("CONFIG_X=y\n")
     # the fake olddefconfig keeps .config as is, so make the final config disagree
     (src / "Makefile").write_text(MAKEFILE.replace(
-        "olddefconfig:\n\t@touch .config",
-        "olddefconfig:\n\t@sed -i 's/CONFIG_X=y/# CONFIG_X is not set/' .config"))
+        "olddefconfig:\n\t@touch $(O)/.config",
+        "olddefconfig:\n\t@sed -i 's/CONFIG_X=y/# CONFIG_X is not set/' $(O)/.config"))
     c = cfg("defconfig", tmp_path / "dist", strict=True, fragments=[str(frag)])
     with pytest.raises(RuntimeError, match="not honoured"):
-        kconfig.configure_kernel(src, c, tc, Console())
+        kconfig.configure_kernel(src, c, tc, Console(), tmp_path / "obj")
 
 
 def test_build_stages_modules_and_reports_release(tree, tmp_path):
     src, tc = tree
     out = tmp_path / "dist"
+    obj = tmp_path / "obj"
     c = cfg("defconfig", out)
-    build.build_kernel(src, c, tc, Console())
+    build.build_kernel(src, c, tc, Console(), obj)
     note = out / "rootfs" / "lib" / "modules" / "9.9.9-test" / "note"
     assert note.read_text().strip() == "strip=1"
 
     from builder.artifact import _kernel_release
-    assert _kernel_release(src) == "9.9.9-test"
+    assert _kernel_release(obj) == "9.9.9-test"
+    assert (obj / "arch" / "x86" / "boot" / "bzImage").is_file()
+    assert not (src / "arch").exists()          # nothing was built inside the source tree
+
+
+def test_configure_refuses_a_tree_that_was_built_in_place(tree, tmp_path):
+    src, tc = tree
+    (src / ".config").write_text("CONFIG_OLD=y\n")
+    c = cfg("defconfig", tmp_path / "dist")
+    with pytest.raises(RuntimeError, match="in-tree build"):
+        kconfig.configure_kernel(src, c, tc, Console(), tmp_path / "obj")
+
+
+def test_two_builds_share_one_source_tree(tree, tmp_path):
+    """The point of make O=: different builds never overwrite each other."""
+    src, tc = tree
+    for name, lv in (("a", "-one"), ("b", "-two")):
+        kconfig.configure_kernel(src, cfg("defconfig", tmp_path / name, localversion=lv), tc,
+                                 Console(), tmp_path / f"obj-{name}")
+    assert 'CONFIG_LOCALVERSION="-one"' in (tmp_path / "obj-a" / ".config").read_text()
+    assert 'CONFIG_LOCALVERSION="-two"' in (tmp_path / "obj-b" / ".config").read_text()
 
 
 def test_make_output_with_brackets_does_not_crash_rich(tmp_path):

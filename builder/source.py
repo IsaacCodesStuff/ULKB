@@ -15,12 +15,12 @@ from pathlib import Path
 from rich.console import Console
 
 from .download import download_file
+from .paths import source_dir, downloads_dir
 from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn
 
 
-# Where fetched kernel sources live — relative to cwd
-SOURCES_DIR = Path("sources")
+# Kernel sources live at the project root as kernel-<version>/ (see paths.py).
 
 
 def fetch_kernel_source(source_config: dict, console: Console) -> Path:
@@ -48,13 +48,10 @@ def _fetch_git(cfg: dict, console: Console) -> Path:
     branch = cfg["branch"]
     depth  = cfg.get("depth", 1)  # shallow clone by default
 
-    # Derive a local directory name from the repo URL
-    repo_name = repo.rstrip("/").split("/")[-1].removesuffix(".git")
-    dest = SOURCES_DIR / repo_name
-
-    SOURCES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = source_dir(cfg)           # kernel-<version>/ unless kernel.source.directory says otherwise
 
     if (dest / ".git").exists():
+        _check_same_repo(dest, repo)
         console.print(f"[green]✓[/green] Repo exists — fetching latest: [dim]{dest}[/dim]")
         _run(
             ["git", "fetch", "--progress", "origin", branch, f"--depth={depth}"],
@@ -88,6 +85,23 @@ def _fetch_git(cfg: dict, console: Console) -> Path:
     return dest
 
 
+def _check_same_repo(dest: Path, repo: str):
+    """Refuse to reuse a folder that was cloned from a different repository."""
+    def norm(url: str) -> str:
+        return url.strip().rstrip("/").removesuffix(".git").lower()
+
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=dest, capture_output=True, text=True,
+    )
+    have = result.stdout.strip()
+    if result.returncode == 0 and norm(have) != norm(repo):
+        raise RuntimeError(
+            f"{dest} was cloned from {have}, but this build wants {repo}.\n"
+            "Set kernel.source.directory in the build file to give this source its own folder."
+        )
+
+
 def _git_rev(path: Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -107,8 +121,8 @@ def _fetch_tarball(cfg: dict, console: Console) -> Path:
     expected = cfg.get("checksum", {})
 
     filename = url.split("/")[-1]
-    SOURCES_DIR.mkdir(parents=True, exist_ok=True)
-    archive_path = SOURCES_DIR / filename
+    downloads_dir().mkdir(parents=True, exist_ok=True)
+    archive_path = downloads_dir() / filename
 
     # Download if not cached
     if archive_path.exists():
@@ -123,9 +137,7 @@ def _fetch_tarball(cfg: dict, console: Console) -> Path:
         _verify_checksum(archive_path, expected["algorithm"], expected["value"])
         console.print("[green]✓[/green] Checksum OK")
 
-    # Extract
-    extract_dir = _extract_tarball(archive_path, console)
-    return extract_dir
+    return _extract_tarball(archive_path, source_dir(cfg), console)
 
 
 def _download_with_progress(url: str, dest: Path, console: Console):
@@ -146,18 +158,22 @@ def _verify_checksum(path: Path, algorithm: str, expected: str):
         )
 
 
-def _extract_tarball(archive: Path, console: Console) -> Path:
+def _extract_tarball(archive: Path, dest: Path, console: Console) -> Path:
+    """Extract into dest, dropping the archive's own top-level folder (linux-7.2/)."""
     console.print(f"  Extracting: [dim]{archive.name}[/dim]")
+    if dest.exists():
+        console.print(f"[green]✓[/green] Already extracted: [dim]{dest}[/dim]")
+        return dest
     with tarfile.open(archive) as tf:
-        # Detect top-level directory inside the archive
-        members = tf.getnames()
-        top = members[0].split("/")[0] if members else archive.stem
-        dest = SOURCES_DIR / top
-        if dest.exists():
-            console.print(f"[green]✓[/green] Already extracted: [dim]{dest}[/dim]")
-        else:
-            tf.extractall(SOURCES_DIR, filter="data")
-            console.print(f"[green]✓[/green] Extracted to: [dim]{dest}[/dim]")
+        members = []
+        for m in tf.getmembers():
+            parts = Path(m.name).parts
+            if len(parts) < 2:
+                continue                      # the top-level folder entry itself
+            m.name = str(Path(*parts[1:]))
+            members.append(m)
+        tf.extractall(dest, members=members, filter="data")
+    console.print(f"[green]✓[/green] Extracted to: [dim]{dest}[/dim]")
     return dest
 
 

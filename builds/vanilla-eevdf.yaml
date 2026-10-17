@@ -36,7 +36,6 @@ build:
     - LLVM_IAS=1
 
 output:
-  directory: dist/vanilla-eevdf
   artifacts:
     - arch/x86/boot/bzImage
     - System.map

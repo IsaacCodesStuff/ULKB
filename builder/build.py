@@ -15,6 +15,7 @@ from rich.markup import escape
 
 from .toolchain import Toolchain
 from .kconfig import _kernel_arch
+from .paths import obj_dir as default_obj_dir, ccache_dir as default_ccache_dir
 
 
 def build_kernel(
@@ -22,13 +23,15 @@ def build_kernel(
     config: dict,
     toolchain: Toolchain,
     console: Console,
+    obj_dir: Path = None,
 ):
-    """Run make to build the kernel.
+    """Run make to build the kernel, out of tree (make O=obj_dir).
 
     Raises:
         RuntimeError: If make exits non-zero.
     """
     arch        = config["target"]["arch"]
+    obj_dir     = Path(obj_dir if obj_dir is not None else default_obj_dir(config)).resolve()
     build_cfg   = config["build"]
     build_flags = build_cfg.get("flags", [])
     targets     = build_cfg.get("targets", ["vmlinux", "modules", "bzImage"])
@@ -42,8 +45,8 @@ def build_kernel(
     if ccache:
         if shutil.which("ccache"):
             ccache_dir = Path(
-                build_cfg.get("ccache_dir", "~/.cache/kernel-builder/ccache")
-            ).expanduser()
+                build_cfg.get("ccache_dir") or default_ccache_dir()
+            ).expanduser().resolve()
             ccache_dir.mkdir(parents=True, exist_ok=True)
             env["CCACHE_DIR"] = str(ccache_dir)
             # Wrap the compiler with ccache. With LLVM=1 the kernel Makefile
@@ -61,6 +64,7 @@ def build_kernel(
     cmd = [
         "make",
         f"ARCH={_kernel_arch(arch)}",
+        f"O={obj_dir}",
         f"-j{jobs}",
         *build_flags,
         *cc_args,
@@ -91,6 +95,7 @@ def build_kernel(
         mod_cmd = [
             "make",
             f"ARCH={_kernel_arch(arch)}",
+            f"O={obj_dir}",
             f"-j{jobs}",
             *build_flags,
             f"INSTALL_MOD_PATH={stage}",

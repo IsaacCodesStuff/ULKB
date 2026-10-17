@@ -87,6 +87,13 @@ def validate_build_config(config: dict) -> None:
             f"kernel.source.type must be one of {VALID_SOURCE_TYPES}, got '{src_type}'"
         )
 
+    directory = config["kernel"]["source"].get("directory")
+    if directory is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", str(directory)):
+        raise ConfigError(
+            "kernel.source.directory must be a plain folder name (letters, digits and "
+            f". _ + -; no slashes), got {directory!r}"
+        )
+
     arch = config["target"]["arch"]
     if arch not in VALID_ARCHS:
         raise ConfigError(
@@ -163,7 +170,7 @@ def _apply_defaults(config: dict) -> dict:
     config["build"].setdefault("targets", ["vmlinux", "modules", "bzImage"])
 
     config.setdefault("output", {})
-    config["output"].setdefault("directory", "dist/")
+    config["output"].setdefault("directory", f"out/{config.get('meta', {}).get('name', 'build')}/dist")
     config["output"].setdefault("artifacts", [])
     config["output"].setdefault("metadata", True)
     config["output"].setdefault("compress", False)

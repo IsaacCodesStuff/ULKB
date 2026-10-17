@@ -14,10 +14,11 @@ import yaml
 from rich.console import Console
 
 from .download import download_file
+from .paths import toolchain_cache
 
 
-# Default cache location — overrideable via descriptor or env var
-DEFAULT_CACHE = Path(os.environ.get("KBUILD_TOOLCHAIN_CACHE", "~/.cache/kernel-builder/toolchains")).expanduser()
+# Toolchains are extracted into <project>/build/toolchains (override with the
+# descriptor-level cache_dir or the KBUILD_TOOLCHAIN_CACHE environment variable).
 
 
 class Toolchain:
@@ -54,7 +55,7 @@ def resolve_toolchain(toolchain_config: dict, console: Console) -> Toolchain:
         A ready-to-use Toolchain instance.
     """
     descriptor_path = toolchain_config["descriptor"]
-    cache_dir = Path(toolchain_config.get("cache_dir", DEFAULT_CACHE)).expanduser()
+    cache_dir = Path(toolchain_config.get("cache_dir") or toolchain_cache()).expanduser()
 
     # Load the descriptor
     if not os.path.isfile(descriptor_path):
@@ -174,7 +175,7 @@ def pin_checksum(descriptor_path: str, console: Console) -> str:
     url = desc.get("url")
     if not url:
         raise ValueError("Descriptor has no 'url' to hash.")
-    cache = DEFAULT_CACHE
+    cache = toolchain_cache()
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / url.split("/")[-1]
     _download(url, archive, console)

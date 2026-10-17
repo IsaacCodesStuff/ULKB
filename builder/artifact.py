@@ -14,13 +14,19 @@ import subprocess
 from pathlib import Path
 from rich.console import Console
 
+from .paths import obj_dir as default_obj_dir
 
-def collect_artifacts(source_dir: Path, config: dict, console: Console):
+
+def collect_artifacts(source_dir: Path, config: dict, console: Console, obj_dir: Path = None):
     """Copy build artifacts to the output directory and write metadata.
+
+    Build products are looked up in obj_dir (the make O= directory); the source
+    folder is only used for git information.
 
     Raises:
         RuntimeError: If a specified artifact isn't found after the build.
     """
+    obj_dir     = Path(obj_dir if obj_dir is not None else default_obj_dir(config))
     output_dir  = Path(config["output"]["directory"])
     artifacts   = config["output"].get("artifacts", [])
     emit_meta   = config["output"].get("metadata", True)
@@ -32,10 +38,10 @@ def collect_artifacts(source_dir: Path, config: dict, console: Console):
     copied = []
     if artifacts:
         for rel_path in artifacts:
-            src = source_dir / rel_path
+            src = obj_dir / rel_path
             if not src.exists():
                 # Try common alternative locations
-                src = _find_artifact(source_dir, Path(rel_path).name)
+                src = _find_artifact(obj_dir, Path(rel_path).name)
 
             if src and src.exists():
                 dest = output_dir / src.name
@@ -45,12 +51,12 @@ def collect_artifacts(source_dir: Path, config: dict, console: Console):
             else:
                 raise RuntimeError(
                     f"Artifact not found after build: {rel_path}\n"
-                    f"  Searched in: {source_dir}"
+                    f"  Searched in: {obj_dir}"
                 )
     else:
         # Auto-collect common kernel output files if no list specified
         for name in ["vmlinux", "bzImage", "Image", "Image.gz", "System.map", "zImage"]:
-            found = _find_artifact(source_dir, name)
+            found = _find_artifact(obj_dir, name)
             if found:
                 dest = output_dir / name
                 shutil.copy2(found, dest)
@@ -58,12 +64,12 @@ def collect_artifacts(source_dir: Path, config: dict, console: Console):
                 copied.append(dest)
 
     # Keep the exact .config that produced these artifacts
-    final_cfg = source_dir / ".config"
+    final_cfg = obj_dir / ".config"
     if final_cfg.is_file():
         shutil.copy2(final_cfg, output_dir / "config")
         console.print(f"[green]✓[/green] config → [dim]{output_dir / 'config'}[/dim]")
 
-    release = _kernel_release(source_dir)
+    release = _kernel_release(obj_dir)
     if release != "unknown":
         console.print(f"  Kernel release: [bold]{release}[/bold]")
 
@@ -73,7 +79,7 @@ def collect_artifacts(source_dir: Path, config: dict, console: Console):
     # ── Write metadata ─────────────────────────────────────────────────────
     if emit_meta:
         meta_path = output_dir / "build-info.json"
-        metadata  = _build_metadata(source_dir, config, copied)
+        metadata  = _build_metadata(source_dir, config, copied, obj_dir)
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
         console.print(f"[green]✓[/green] Metadata → [dim]{meta_path}[/dim]")
@@ -117,9 +123,9 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _kernel_release(source_dir: Path) -> str:
+def _kernel_release(obj_dir: Path) -> str:
     """The version string the built kernel reports (also the /lib/modules/<name> dir)."""
-    rel = source_dir / "include" / "config" / "kernel.release"
+    rel = obj_dir / "include" / "config" / "kernel.release"
     try:
         return rel.read_text().strip()
     except OSError:
@@ -142,7 +148,7 @@ def _git_info(source_dir: Path) -> dict:
     return info
 
 
-def _build_metadata(source_dir: Path, config: dict, artifacts: list[Path]) -> dict:
+def _build_metadata(source_dir: Path, config: dict, artifacts: list[Path], obj_dir: Path) -> dict:
     """Build the build-info.json payload."""
     return {
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -150,7 +156,7 @@ def _build_metadata(source_dir: Path, config: dict, artifacts: list[Path]) -> di
         "kernel": {
             "source":  config["kernel"]["source"],
             "git":     _git_info(source_dir),
-            "release": _kernel_release(source_dir),
+            "release": _kernel_release(obj_dir),
         },
         "target": config["target"],
         "toolchain": {

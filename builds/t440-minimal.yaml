@@ -44,7 +44,6 @@ build:
     - LLVM_IAS=1
 
 output:
-  directory: dist/t440-minimal
   install_modules: true
   artifacts:
     - arch/x86/boot/bzImage
