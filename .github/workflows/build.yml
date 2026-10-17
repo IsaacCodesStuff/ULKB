@@ -55,13 +55,13 @@ jobs:
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
-          path: ~/.cache/kernel-builder/toolchains
+          path: build/toolchains
           key: toolchains-${{ hashFiles('toolchains/*.yaml') }}
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/kernel-builder/ccache
+          path: build/ccache
           key: ccache-${{ env.BUILD }}-${{ github.run_id }}
           restore-keys: ccache-${{ env.BUILD }}-
 
@@ -72,14 +72,16 @@ jobs:
           python -m builder validate-configs configs/
 
       - name: Build
-        run: python -m builder build "builds/${BUILD}.yaml"
+        run: bash ./build_kernel.sh "$BUILD"
 
       - name: Package
         run: |
           out="$(python - <<'PY'
           import os, yaml
           with open(f"builds/{os.environ['BUILD']}.yaml") as f:
-              print(yaml.safe_load(f)["output"]["directory"])
+              cfg = yaml.safe_load(f)
+          # same default as the builder: out/<name>/dist
+          print(cfg.get("output", {}).get("directory") or f"out/{cfg['meta']['name']}/dist")
           PY
           )"
           echo "OUT=$out" >> "$GITHUB_ENV"

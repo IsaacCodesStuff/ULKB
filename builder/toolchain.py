@@ -27,11 +27,30 @@ class Toolchain:
     def __init__(self, name: str, version: str, root: Path, env: dict):
         self.name    = name
         self.version = version
-        self.root    = root     # directory containing bin/clang etc.
+        # Always absolute: make runs inside the kernel source folder, where a relative
+        # PATH entry such as build/toolchains/<name>/bin would point at nothing.
+        self.root    = Path(root).expanduser().resolve()   # directory containing bin/clang etc.
         self.env     = env      # CC, LD, AR, ... — ready to inject into make
 
     def __repr__(self):
         return f"<Toolchain {self.name} {self.version} at {self.root}>"
+
+    def verify(self):
+        """Fail early, and clearly, if a tool this toolchain should provide is missing.
+
+        Without this, make would quietly pick up whatever compiler the machine
+        has (or fail later with "linker 'ld.lld' not found").
+        """
+        bin_dir = self.root / "bin"
+        missing = sorted({v for v in self.env.values()
+                          if os.sep not in v and not (bin_dir / v).exists()})
+        if missing:
+            raise FileNotFoundError(
+                f"Toolchain {self.name} {self.version} ({self.root}) is missing: "
+                + ", ".join(f"bin/{m}" for m in missing) + "\n"
+                "The download may be incomplete, or 'extract.strip_components' in the "
+                "descriptor does not match the archive layout."
+            )
 
     def make_env(self) -> dict:
         """Return os.environ copy with toolchain variables injected."""
@@ -55,7 +74,7 @@ def resolve_toolchain(toolchain_config: dict, console: Console) -> Toolchain:
         A ready-to-use Toolchain instance.
     """
     descriptor_path = toolchain_config["descriptor"]
-    cache_dir = Path(toolchain_config.get("cache_dir") or toolchain_cache()).expanduser()
+    cache_dir = Path(toolchain_config.get("cache_dir") or toolchain_cache()).expanduser().resolve()
 
     # Load the descriptor
     if not os.path.isfile(descriptor_path):
@@ -75,14 +94,16 @@ def resolve_toolchain(toolchain_config: dict, console: Console) -> Toolchain:
 
     # Pre-installed toolchain (e.g. Neutron via antman): use it where it is
     if desc.get("path"):
-        root = Path(desc["path"]).expanduser()
+        root = Path(desc["path"]).expanduser().resolve()
         if not (root / "bin").is_dir():
             raise FileNotFoundError(
                 f"Toolchain path has no bin/ directory: {root}\n"
                 "Install it first (for Neutron: use antman) or fix 'path' in the descriptor."
             )
         console.print(f"[green]✓[/green] Using installed toolchain: [dim]{root}[/dim]")
-        return Toolchain(name=name, version=version, root=root, env=dict(env_template))
+        tc = Toolchain(name=name, version=version, root=root, env=dict(env_template))
+        tc.verify()
+        return tc
 
     # Determine install path
     slug = f"{name.lower().replace(' ', '-')}-{version}"
@@ -116,6 +137,7 @@ def resolve_toolchain(toolchain_config: dict, console: Console) -> Toolchain:
     env = {k: v for k, v in env_template.items()}
 
     tc = Toolchain(name=name, version=version, root=install_dir, env=env)
+    tc.verify()
     console.print(f"[green]✓[/green] Toolchain ready")
     return tc
 
